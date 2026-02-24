@@ -153,3 +153,35 @@ def test_get_profile_raises_for_unknown_name(
 
     with pytest.raises(ProfileNotFoundError):
         config.get_profile("missing")
+
+
+def test_config_validates_jellyfin_profile_requirements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Jellyfin profile should require Jellyfin credentials."""
+    monkeypatch.setenv("PAB_DATA_PATH", str(tmp_path))
+    monkeypatch.setenv("PAB_PROFILES__jf__ANILIST_TOKEN", "anilist-token")
+    monkeypatch.setenv("PAB_PROFILES__jf__MEDIA_SERVER_PROVIDER", "jellyfin")
+    monkeypatch.setenv("PAB_PROFILES__jf__JELLYFIN_USER", "alice")
+    monkeypatch.setenv("PAB_PROFILES__jf__JELLYFIN_URL", "http://jellyfin:8096")
+
+    with pytest.raises(ProfileConfigError):
+        PlexAnibridgeConfig()
+
+
+def test_config_accepts_jellyfin_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Jellyfin profile with required credentials should load successfully."""
+    monkeypatch.setenv("PAB_DATA_PATH", str(tmp_path))
+    monkeypatch.setenv("PAB_PROFILES__jf__ANILIST_TOKEN", "anilist-token")
+    monkeypatch.setenv("PAB_PROFILES__jf__MEDIA_SERVER_PROVIDER", "jellyfin")
+    monkeypatch.setenv("PAB_PROFILES__jf__JELLYFIN_TOKEN", "jf-token")
+    monkeypatch.setenv("PAB_PROFILES__jf__JELLYFIN_USER", "alice")
+    monkeypatch.setenv("PAB_PROFILES__jf__JELLYFIN_URL", "http://jellyfin:8096")
+
+    config = PlexAnibridgeConfig()
+    profile = config.get_profile("jf")
+
+    assert profile.media_server_provider.value == "jellyfin"
+    assert profile.jellyfin_user == "alice"

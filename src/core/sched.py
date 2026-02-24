@@ -10,6 +10,7 @@ from tzlocal import get_localzone
 
 from src import log
 from src.config.settings import (
+    MediaServerProvider,
     PlexAnibridgeConfig,
     PlexAnibridgeProfileConfig,
     SyncMode,
@@ -398,6 +399,13 @@ class SchedulerClient:
 
             status[profile_name] = {
                 "config": {
+                    "media_server_provider": profile_config.media_server_provider.value,
+                    "media_server_user": (
+                        profile_config.plex_user
+                        if profile_config.media_server_provider
+                        == MediaServerProvider.PLEX
+                        else profile_config.jellyfin_user
+                    ),
                     "plex_user": profile_config.plex_user,
                     "anilist_user": bridge_client.anilist_client.user.name
                     if bridge_client
@@ -485,16 +493,17 @@ class SchedulerClient:
         log.info("Daily database sync scheduler stopped")
 
     @lru_cache(maxsize=128)
-    def get_profiles_for_plex_account(
-        self, account_id: int | str
+    def get_profiles_for_server_account(
+        self, provider: MediaServerProvider, account_id: int | str
     ) -> list[tuple[str, PlexAnibridgeProfileConfig]]:
-        """Find all profile names and their configs by Plex account id.
+        """Find all profile names/configs by provider account id.
 
         This is memoized to avoid repeated linear scans of profile lists for
         frequent webhook requests.
 
         Args:
-            account_id (int | str): Plex user account id to search for.
+            provider (MediaServerProvider): Provider to filter by.
+            account_id (int | str): Media server user account id to search for.
 
         Returns:
             list[tuple[str, PlexAnibridgeProfileConfig]]: A list of tuples containing
@@ -507,18 +516,36 @@ class SchedulerClient:
         for profile_name, bridge_client in self.bridge_clients.items():
             if not bridge_client:
                 continue
-            if not bridge_client.plex_client:
+            profile_config = self.global_config.get_profile(profile_name)
+            if profile_config.media_server_provider != provider:
                 continue
-            if bridge_client.plex_client.user_account_id == account_id:
-                profile_config = self.global_config.get_profile(profile_name)
-                profiles.append((profile_name, profile_config))
+
+            if provider == MediaServerProvider.PLEX:
+                if bridge_client.plex_client and (
+                    bridge_client.plex_client.user_account_id == account_id
+                ):
+                    profiles.append((profile_name, profile_config))
+            else:
+                if bridge_client.jellyfin_client and (
+                    bridge_client.jellyfin_client.user_account_id == str(account_id)
+                ):
+                    profiles.append((profile_name, profile_config))
 
         if not profiles:
             raise ProfileNotFoundError(
-                f"Profile for Plex account id '{account_id}' not found"
+                f"Profile for {provider.value} account id '{account_id}' not found"
             )
 
         return profiles
+
+    @lru_cache(maxsize=128)
+    def get_profiles_for_plex_account(
+        self, account_id: int | str
+    ) -> list[tuple[str, PlexAnibridgeProfileConfig]]:
+        """Backward-compatible Plex account lookup helper."""
+        return self.get_profiles_for_server_account(
+            MediaServerProvider.PLEX, account_id
+        )
 
     async def __aenter__(self):
         """Async context manager entry."""

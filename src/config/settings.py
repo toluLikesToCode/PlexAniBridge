@@ -35,6 +35,7 @@ from src.utils.logging import _get_logger
 
 __all__ = [
     "LogLevel",
+    "MediaServerProvider",
     "PlexAnibridgeConfig",
     "PlexAnibridgeProfileConfig",
     "PlexMetadataSource",
@@ -165,6 +166,13 @@ class SyncMode(BaseStrEnum):
     WEBHOOK = "webhook"
 
 
+class MediaServerProvider(BaseStrEnum):
+    """Supported source media server providers."""
+
+    PLEX = "plex"
+    JELLYFIN = "jellyfin"
+
+
 def _apply_deprecations(data: dict) -> dict:
     """Translate deprecated/legacy configuration fields in-place.
 
@@ -199,9 +207,15 @@ class PlexAnibridgeProfileConfig(BaseModel):
     anilist_token: SecretStr = Field(
         ..., description="AniList API token for authentication"
     )
-    plex_token: SecretStr = Field(..., description="Plex API token for authentication")
-    plex_user: str = Field(..., description="Plex username of target user")
-    plex_url: str = Field(default=..., description="Plex server URL")
+    media_server_provider: MediaServerProvider = Field(
+        default=MediaServerProvider.PLEX,
+        description="Media server provider for this profile",
+    )
+    plex_token: SecretStr | None = Field(
+        default=None, description="Plex API token for authentication"
+    )
+    plex_user: str | None = Field(default=None, description="Plex username of target user")
+    plex_url: str | None = Field(default=None, description="Plex server URL")
     plex_sections: list[str] = Field(
         default_factory=list, description="Library sections to sync (empty = all)"
     )
@@ -211,6 +225,20 @@ class PlexAnibridgeProfileConfig(BaseModel):
     plex_metadata_source: PlexMetadataSource = Field(
         default=PlexMetadataSource.LOCAL,
         description="Source of metadata for Plex media items",
+    )
+    jellyfin_token: SecretStr | None = Field(
+        default=None, description="Jellyfin API token for authentication"
+    )
+    jellyfin_user: str | None = Field(
+        default=None, description="Jellyfin username of target user"
+    )
+    jellyfin_url: str | None = Field(default=None, description="Jellyfin server URL")
+    jellyfin_sections: list[str] = Field(
+        default_factory=list,
+        description="Jellyfin library sections to sync (empty = all)",
+    )
+    jellyfin_genres: list[str] = Field(
+        default_factory=list, description="Jellyfin genre filter (empty = all)"
     )
     sync_interval: int = Field(
         default=86400, ge=0, description="Sync interval in seconds"
@@ -287,6 +315,21 @@ class PlexAnibridgeProfileConfig(BaseModel):
     def _translate_deprecated(cls, values):
         """Apply centralized deprecated field translations for profile configs."""
         return _apply_deprecations(values)
+
+    @model_validator(mode="after")
+    def validate_provider_credentials(self) -> PlexAnibridgeProfileConfig:
+        """Validate required media server credentials by selected provider."""
+        if self.media_server_provider == MediaServerProvider.PLEX:
+            if not self.plex_token or not self.plex_user or not self.plex_url:
+                raise ProfileConfigError(
+                    "Provider 'plex' requires plex_token, plex_user, and plex_url."
+                )
+        else:
+            if not self.jellyfin_token or not self.jellyfin_user or not self.jellyfin_url:
+                raise ProfileConfigError(
+                    "Provider 'jellyfin' requires jellyfin_token, jellyfin_user, and jellyfin_url."
+                )
+        return self
 
 
 class PlexAnibridgeConfig(BaseSettings):
@@ -377,6 +420,9 @@ class PlexAnibridgeConfig(BaseSettings):
     anilist_token: SecretStr | None = Field(
         default=None, description="Global default AniList API token"
     )
+    media_server_provider: MediaServerProvider | None = Field(
+        default=None, description="Global default media server provider"
+    )
     plex_token: SecretStr | None = Field(
         default=None, description="Global default Plex API token"
     )
@@ -394,6 +440,21 @@ class PlexAnibridgeConfig(BaseSettings):
     )
     plex_metadata_source: PlexMetadataSource | None = Field(
         default=None, description="Global default metadata source"
+    )
+    jellyfin_token: SecretStr | None = Field(
+        default=None, description="Global default Jellyfin API token"
+    )
+    jellyfin_user: str | None = Field(
+        default=None, description="Global default Jellyfin username"
+    )
+    jellyfin_url: str | None = Field(
+        default=None, description="Global default Jellyfin server URL"
+    )
+    jellyfin_sections: list[str] | None = Field(
+        default=None, description="Global default Jellyfin library sections to sync"
+    )
+    jellyfin_genres: list[str] | None = Field(
+        default=None, description="Global default Jellyfin genre filter"
     )
     sync_interval: int | None = Field(
         default=None, ge=0, description="Global default sync interval in seconds"
@@ -515,7 +576,18 @@ class PlexAnibridgeConfig(BaseSettings):
 
         # If there are no explicit profiles, attempt to bootstrap a default from globals
         if not self.raw_profiles and not self.profiles:
-            if self.anilist_token and self.plex_token and self.plex_user:
+            provider = self.media_server_provider or MediaServerProvider.PLEX
+            has_provider_creds = False
+            if provider == MediaServerProvider.PLEX:
+                has_provider_creds = bool(
+                    self.plex_token and self.plex_user and self.plex_url
+                )
+            else:
+                has_provider_creds = bool(
+                    self.jellyfin_token and self.jellyfin_user and self.jellyfin_url
+                )
+
+            if self.anilist_token and has_provider_creds:
                 _log.info(
                     "No profiles configured; "
                     "creating implicit 'default' profile from globals"
@@ -530,8 +602,9 @@ class PlexAnibridgeConfig(BaseSettings):
                 raise NoProfilesConfiguredError(
                     "No sufficiently populated sync profiles are configured. Either "
                     "define at least one profile via PAB_PROFILES__${PROFILE}__* or "
-                    "set global PAB_ANILIST_TOKEN, PAB_PLEX_TOKEN, PAB_PLEX_USER, and "
-                    "PAB_PLEX_URL."
+                    "set global PAB_ANILIST_TOKEN plus provider-specific credentials "
+                    "(Plex: PAB_PLEX_TOKEN, PAB_PLEX_USER, PAB_PLEX_URL; "
+                    "Jellyfin: PAB_JELLYFIN_TOKEN, PAB_JELLYFIN_USER, PAB_JELLYFIN_URL)."
                 )
 
         if (not self.web_basic_auth_username) != (not self.web_basic_auth_password):

@@ -127,6 +127,12 @@ class InvalidGuidError(PlexError, ValueError):
     status_code = 400
 
 
+class MediaServerNotImplementedError(PlexAniBridgeError, NotImplementedError):
+    """The selected media server provider is recognized but not yet implemented."""
+
+    status_code = 501
+
+
 # Scheduler errors
 class SchedulerError(PlexAniBridgeError):
     """Base class for scheduler-related failures."""

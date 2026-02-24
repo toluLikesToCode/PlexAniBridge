@@ -2,6 +2,7 @@
 
 from src.core.anilist import AniListClient
 from src.core.animap import AniMapClient
+from src.core.jellyfin import JellyfinClient
 from src.core.plex import PlexClient
 
 from src.core.bridge import BridgeClient  # isort:skip
@@ -11,6 +12,7 @@ __all__ = [
     "AniListClient",
     "AniMapClient",
     "BridgeClient",
+    "JellyfinClient",
     "PlexClient",
     "SchedulerClient",
 ]

@@ -7,11 +7,16 @@ from typing import TYPE_CHECKING
 
 from src import log
 from src.config.database import db
-from src.config.settings import PlexAnibridgeConfig, PlexAnibridgeProfileConfig
-from src.core import AniListClient, AniMapClient, PlexClient
+from src.config.settings import (
+    MediaServerProvider,
+    PlexAnibridgeConfig,
+    PlexAnibridgeProfileConfig,
+)
+from src.core import AniListClient, AniMapClient, JellyfinClient, PlexClient
 from src.core.sync import BaseSyncClient, MovieSyncClient, ShowSyncClient
 from src.core.sync.base import ParsedGuids
 from src.core.sync.stats import SyncProgress, SyncStats
+from src.exceptions import MediaServerNotImplementedError
 from src.models.db.housekeeping import Housekeeping
 from src.models.db.sync_history import SyncOutcome
 
@@ -65,14 +70,27 @@ class BridgeClient:
             backup_retention_days=profile_config.backup_retention_days,
         )
 
-        self.plex_client = PlexClient(
-            plex_token=profile_config.plex_token.get_secret_value(),
-            plex_user=profile_config.plex_user,
-            plex_url=profile_config.plex_url,
-            plex_sections=profile_config.plex_sections,
-            plex_genres=profile_config.plex_genres,
-            plex_metadata_source=profile_config.plex_metadata_source,
-        )
+        self.media_server_provider = profile_config.media_server_provider
+        self.plex_client: PlexClient | None = None
+        self.jellyfin_client: JellyfinClient | None = None
+
+        if self.media_server_provider == MediaServerProvider.PLEX:
+            self.plex_client = PlexClient(
+                plex_token=profile_config.plex_token.get_secret_value(),
+                plex_user=profile_config.plex_user,
+                plex_url=profile_config.plex_url,
+                plex_sections=profile_config.plex_sections,
+                plex_genres=profile_config.plex_genres,
+                plex_metadata_source=profile_config.plex_metadata_source,
+            )
+        else:
+            self.jellyfin_client = JellyfinClient(
+                jellyfin_token=profile_config.jellyfin_token.get_secret_value(),
+                jellyfin_user=profile_config.jellyfin_user,
+                jellyfin_url=profile_config.jellyfin_url,
+                jellyfin_sections=profile_config.jellyfin_sections,
+                jellyfin_genres=profile_config.jellyfin_genres,
+            )
 
         self.last_synced = self._get_last_synced()
         self.current_sync: SyncProgress | None = None
@@ -84,12 +102,21 @@ class BridgeClient:
         """
         log.info(f"[{self.profile_name}] Initializing bridge client")
 
-        self.plex_client.clear_cache()
+        if self.plex_client:
+            self.plex_client.clear_cache()
+        if self.jellyfin_client:
+            self.jellyfin_client.clear_cache()
         await self.anilist_client.initialize()
 
+        provider_user = (
+            self.profile_config.plex_user
+            if self.media_server_provider == MediaServerProvider.PLEX
+            else self.profile_config.jellyfin_user
+        )
         log.info(
             f"[{self.profile_name}] Bridge client "
-            f"initialized for Plex user $$'{self.profile_config.plex_user}'$$ -> "
+            f"initialized for {self.media_server_provider.value.title()} user "
+            f"$$'{provider_user}'$$ -> "
             f"AniList user $$'{self.anilist_client.user.name}'$$"
         )
 
@@ -97,7 +124,10 @@ class BridgeClient:
         """Close all async clients."""
         log.debug(f"[{self.profile_name}] Closing bridge client")
         await self.anilist_client.close()
-        await self.plex_client.close()
+        if self.plex_client:
+            await self.plex_client.close()
+        if self.jellyfin_client:
+            await self.jellyfin_client.close()
 
     async def __aenter__(self) -> BridgeClient:
         """Context manager enter method.
@@ -178,9 +208,20 @@ class BridgeClient:
             f"[{self.profile_name}] Starting "
             f"{'full ' if self.profile_config.full_scan else 'partial '}"
             f"{'and destructive ' if self.profile_config.destructive_sync else ''}"
-            f"sync for Plex user $$'{self.profile_config.plex_user}'$$ "
+            f"sync for {self.media_server_provider.value.title()} user "
+            f"$$'{
+                self.profile_config.plex_user
+                if self.media_server_provider == MediaServerProvider.PLEX
+                else self.profile_config.jellyfin_user
+            }'$$ "
             f"-> AniList user $$'{self.anilist_client.user.name}'$$"
         )
+
+        if self.media_server_provider != MediaServerProvider.PLEX:
+            raise MediaServerNotImplementedError(
+                "Jellyfin sync engine is not implemented yet; provider plumbing is "
+                "available but sync execution still requires Plex."
+            )
 
         sync_start_time = datetime.now(UTC)
 
