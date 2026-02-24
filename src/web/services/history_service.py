@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from src.config.database import db
+from src.config.settings import MediaServerProvider
 from src.core.anilist import AniListClient
 from src.exceptions import (
     HistoryItemNotFoundError,
@@ -33,10 +34,15 @@ class HistoryItem(BaseModel):
 
     id: int
     profile_name: str
+    provider: str | None = None
+    server_guid: str | None = None
+    server_rating_key: str | None = None
+    server_child_rating_key: str | None = None
+    server_type: str | None = None
     plex_guid: str | None = None
-    plex_rating_key: str
+    plex_rating_key: str | None = None
     plex_child_rating_key: str | None = None
-    plex_type: str
+    plex_type: str | None = None
     anilist_id: int | None = None
     outcome: str
     before_state: dict | None = None
@@ -44,6 +50,7 @@ class HistoryItem(BaseModel):
     error_message: str | None = None
     timestamp: str
     anilist: dict | None = None
+    server: dict | None = None
     plex: dict | None = None
     pinned_fields: list[str] | None = None
 
@@ -120,6 +127,8 @@ class HistoryService:
             return {}
 
         bridge = self._get_bridge(profile)
+        if bridge.profile_config.media_server_provider != MediaServerProvider.PLEX:
+            return {}
         result: dict[str, dict[str, Any] | None] = {}
 
         guids_str = ",".join(
@@ -207,6 +216,21 @@ class HistoryService:
         for guid in guids_tuple:
             result[guid] = None
         return result
+
+    @alru_cache(maxsize=256, ttl=600)
+    async def _fetch_jellyfin_batch(
+        self, profile: str, item_ids_tuple: tuple[str, ...]
+    ) -> dict[str, dict[str, Any] | None]:
+        """Cached Jellyfin metadata fetch by item id."""
+        if not item_ids_tuple:
+            return {}
+        bridge = self._get_bridge(profile)
+        if (
+            bridge.profile_config.media_server_provider != MediaServerProvider.JELLYFIN
+            or not bridge.jellyfin_client
+        ):
+            return {}
+        return await bridge.jellyfin_client.fetch_metadata_batch(item_ids_tuple)
 
     @alru_cache(maxsize=64, ttl=60)  # Cache stats for 1 minute
     async def _fetch_profile_stats(self, profile: str) -> dict[str, int]:
@@ -304,23 +328,56 @@ class HistoryService:
                 anilist_map = await self._fetch_anilist_batch(profile, tuple(ids))
 
         # Fetch Plex data with batch caching
+        bridge = self._get_bridge(profile)
+        provider = bridge.profile_config.media_server_provider
+
+        server_map: dict[str, dict[str, Any] | None] = {}
         plex_map: dict[str, dict[str, Any] | None] = {}
         if include_plex:
-            guids = sorted({r.plex_guid for r in rows if r.plex_guid})
-
-            if guids:
-                plex_map = await self._fetch_plex_batch(profile, tuple(guids))
+            if provider == MediaServerProvider.PLEX:
+                guids = sorted(
+                    {
+                        (r.server_guid or r.plex_guid)
+                        for r in rows
+                        if (r.server_guid or r.plex_guid)
+                    }
+                )
+                if guids:
+                    server_map = await self._fetch_plex_batch(profile, tuple(guids))
+                    plex_map = server_map
+            else:
+                item_ids = sorted({r.server_guid for r in rows if r.server_guid})
+                if item_ids:
+                    server_map = await self._fetch_jellyfin_batch(
+                        profile, tuple(item_ids)
+                    )
 
         dto_items: list[HistoryItem] = []
         for r in rows:
+            effective_provider = r.server_provider or (
+                "plex" if r.plex_rating_key else provider.value
+            )
+            effective_server_guid = r.server_guid or r.plex_guid
+            effective_server_rating_key = r.server_rating_key or r.plex_rating_key
+            effective_server_child_rating_key = (
+                r.server_child_rating_key or r.plex_child_rating_key
+            )
+            effective_server_type = (
+                str(r.server_type) if r.server_type is not None else str(r.plex_type)
+            )
             dto_items.append(
                 HistoryItem(
                     id=r.id,
                     profile_name=r.profile_name,
+                    provider=effective_provider,
+                    server_guid=effective_server_guid,
+                    server_rating_key=effective_server_rating_key,
+                    server_child_rating_key=effective_server_child_rating_key,
+                    server_type=effective_server_type,
                     plex_guid=r.plex_guid,
                     plex_rating_key=r.plex_rating_key,
                     plex_child_rating_key=r.plex_child_rating_key,
-                    plex_type=str(r.plex_type),
+                    plex_type=str(r.plex_type) if r.plex_type is not None else None,
                     anilist_id=r.anilist_id,
                     outcome=str(r.outcome),
                     before_state=r.before_state,
@@ -328,6 +385,11 @@ class HistoryService:
                     error_message=r.error_message,
                     timestamp=r.timestamp.isoformat(),
                     anilist=anilist_map.get(r.anilist_id) if r.anilist_id else None,
+                    server=(
+                        server_map.get(effective_server_guid)
+                        if effective_server_guid
+                        else None
+                    ),
                     plex=plex_map.get(r.plex_guid) if r.plex_guid else None,
                     pinned_fields=(
                         pin_map[(r.profile_name, r.anilist_id)].fields
@@ -464,6 +526,11 @@ class HistoryService:
         with db() as ctx:
             new_row = SyncHistory(
                 profile_name=profile,
+                server_provider=row.server_provider,
+                server_guid=row.server_guid,
+                server_rating_key=row.server_rating_key,
+                server_child_rating_key=row.server_child_rating_key,
+                server_type=row.server_type,
                 plex_guid=row.plex_guid,
                 plex_rating_key=row.plex_rating_key,
                 plex_child_rating_key=row.plex_child_rating_key,
@@ -479,10 +546,17 @@ class HistoryService:
             created = HistoryItem(
                 id=new_row.id,
                 profile_name=new_row.profile_name,
+                provider=new_row.server_provider,
+                server_guid=new_row.server_guid,
+                server_rating_key=new_row.server_rating_key,
+                server_child_rating_key=new_row.server_child_rating_key,
+                server_type=(
+                    str(new_row.server_type) if new_row.server_type is not None else None
+                ),
                 plex_guid=new_row.plex_guid,
                 plex_rating_key=new_row.plex_rating_key,
                 plex_child_rating_key=new_row.plex_child_rating_key,
-                plex_type=str(new_row.plex_type),
+                plex_type=str(new_row.plex_type) if new_row.plex_type else None,
                 anilist_id=new_row.anilist_id,
                 outcome=str(new_row.outcome),
                 before_state=new_row.before_state,
@@ -490,6 +564,7 @@ class HistoryService:
                 error_message=new_row.error_message,
                 timestamp=new_row.timestamp.isoformat(),
                 anilist=None,
+                server=None,
                 plex=None,
             )
 
@@ -508,6 +583,7 @@ class HistoryService:
         """Clear all caches."""
         self._fetch_anilist_batch.cache_clear()
         self._fetch_plex_batch.cache_clear()
+        self._fetch_jellyfin_batch.cache_clear()
         self._fetch_profile_stats.cache_clear()
 
     def get_cache_info(self) -> dict[str, Any]:
@@ -519,6 +595,7 @@ class HistoryService:
         return {
             "anilist_cache": self._fetch_anilist_batch.cache_info(),
             "plex_cache": self._fetch_plex_batch.cache_info(),
+            "jellyfin_cache": self._fetch_jellyfin_batch.cache_info(),
             "stats_cache": self._fetch_profile_stats.cache_info(),
         }
 

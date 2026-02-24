@@ -83,6 +83,13 @@ class SyncHistory(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     profile_name: Mapped[str] = mapped_column(String, index=True)
+    server_provider: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    server_guid: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    server_rating_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    server_child_rating_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    server_type: Mapped[MediaType | None] = mapped_column(
+        Enum(MediaType), nullable=True, index=True
+    )
     plex_guid: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     plex_rating_key: Mapped[str] = mapped_column(String)
     plex_child_rating_key: Mapped[str | None] = mapped_column(String)
@@ -106,6 +113,9 @@ class SyncHistory(Base):
         Index(
             "ix_sync_history_upsert_keys",
             "profile_name",
+            "server_rating_key",
+            "server_child_rating_key",
+            "server_type",
             "plex_rating_key",
             "plex_child_rating_key",
             "plex_type",

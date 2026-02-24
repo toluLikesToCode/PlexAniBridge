@@ -311,6 +311,11 @@ class BaseSyncClient[
             try:
                 history_record = SyncHistory(
                     profile_name=self.profile_name,
+                    server_provider="plex",
+                    server_guid=item.guid,
+                    server_rating_key=plex_rating_key,
+                    server_child_rating_key=plex_child_rating_key,
+                    server_type=plex_type,
                     plex_guid=item.guid,
                     plex_rating_key=plex_rating_key,
                     plex_child_rating_key=plex_child_rating_key,

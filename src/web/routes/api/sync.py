@@ -59,6 +59,7 @@ async def sync_profile(
     profile: str = Path(...),
     poll: bool = Query(False),
     rating_keys: list[str] | None = Body(default=None, embed=True),
+    server_rating_keys: list[str] | None = Body(default=None, embed=True),
 ) -> OkResponse:
     """Trigger a sync for a specific profile.
 
@@ -77,5 +78,9 @@ async def sync_profile(
     scheduler = get_app_state().scheduler
     if not scheduler:
         raise SchedulerNotInitializedError("Scheduler not available")
-    await scheduler.trigger_sync(profile, poll=poll, rating_keys=rating_keys)
+    await scheduler.trigger_sync(
+        profile,
+        poll=poll,
+        rating_keys=rating_keys if rating_keys is not None else server_rating_keys,
+    )
     return OkResponse(ok=True)

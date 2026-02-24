@@ -16,6 +16,8 @@ __all__ = [
 class ProfileConfigModel(BaseModel):
     """Serialized profile configuration exposed to the web UI."""
 
+    media_server_provider: str | None = None
+    media_server_user: str | None = None
     plex_user: str | None = None
     anilist_user: str | None = None
     sync_interval: int | None = None

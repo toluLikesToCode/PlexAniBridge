@@ -7,7 +7,7 @@ from fastapi.routing import APIRouter
 from starlette.requests import Request
 
 from src import log
-from src.config.settings import SyncMode
+from src.config.settings import MediaServerProvider, SyncMode
 from src.exceptions import (
     InvalidWebhookPayloadError,
     ProfileNotFoundError,
@@ -97,7 +97,9 @@ async def plex_webhook(
     try:
         profiles = [
             p
-            for p in scheduler.get_profiles_for_plex_account(payload.account_id)
+            for p in scheduler.get_profiles_for_server_account(
+                MediaServerProvider.PLEX, payload.account_id
+            )
             if SyncMode.WEBHOOK in p[1].sync_modes
         ]
     except KeyError as e:
