@@ -342,7 +342,13 @@
                                             AniList · {profile.config.anilist_user}
                                         </div>
                                     {/if}
-                                    {#if profile.config?.plex_user}
+                                    {#if profile.config?.media_server_user}
+                                        <div class="text-[11px] text-slate-500">
+                                            {(profile.config?.media_server_provider ||
+                                                "plex"
+                                            ).toUpperCase()} · {profile.config.media_server_user}
+                                        </div>
+                                    {:else if profile.config?.plex_user}
                                         <div class="text-[11px] text-slate-500">
                                             Plex · {profile.config.plex_user}
                                         </div>

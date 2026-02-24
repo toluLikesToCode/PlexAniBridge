@@ -37,6 +37,14 @@ For example, if `PAB_SYNC_INTERVAL=900` is set globally and `PAB_PROFILES__perso
 
 ## Configuration Options
 
+### `MEDIA_SERVER_PROVIDER`
+
+`Enum("plex", "jellyfin")` (Optional, default: `"plex"`)
+
+Selects the media server provider used by this profile.
+
+---
+
 ### `ANILIST_TOKEN`
 
 `str` (Required)
@@ -57,6 +65,14 @@ Plex API access token (`X-Plex-Token`) belonging to the **admin user** of the se
 
 ---
 
+### `JELLYFIN_TOKEN`
+
+`str` (Required when `MEDIA_SERVER_PROVIDER="jellyfin"`)
+
+Jellyfin API token for the target server.
+
+---
+
 ### `PLEX_USER`
 
 `str` (Required)
@@ -73,11 +89,27 @@ Plex user to sync for this profile. Can be identified by:
 
 ---
 
+### `JELLYFIN_USER`
+
+`str` (Required when `MEDIA_SERVER_PROVIDER="jellyfin"`)
+
+Jellyfin user to sync for this profile.
+
+---
+
 ### `PLEX_URL`
 
 `str` (Required)
 
 URL to your Plex server that the PlexAniBridge host can access.
+
+---
+
+### `JELLYFIN_URL`
+
+`str` (Required when `MEDIA_SERVER_PROVIDER="jellyfin"`)
+
+URL to your Jellyfin server that the PlexAniBridge host can access.
 
 ---
 

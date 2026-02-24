@@ -86,6 +86,8 @@ export interface LogEntry {
 
 // --- Status / System API ---
 export interface ProfileConfig {
+    media_server_provider?: string | null;
+    media_server_user?: string | null;
     plex_user?: string | null;
     anilist_user?: string | null;
     sync_interval?: number | null;
@@ -178,6 +180,11 @@ export interface MetaResponse {
 export interface HistoryItem {
     id: number;
     profile_name: string;
+    provider?: string | null;
+    server_guid?: string | null;
+    server_rating_key?: string | null;
+    server_child_rating_key?: string | null;
+    server_type?: string | null;
     plex_guid?: string | null;
     plex_rating_key?: string;
     plex_child_rating_key?: string | null;
@@ -189,6 +196,13 @@ export interface HistoryItem {
     error_message?: string | null;
     timestamp: string;
     anilist?: AniListMediaWithoutList | null;
+    server?: {
+        guid?: string;
+        title?: string;
+        type?: string | null;
+        art?: string | null;
+        thumb?: string | null;
+    } | null;
     plex?: {
         guid?: string;
         title?: string;

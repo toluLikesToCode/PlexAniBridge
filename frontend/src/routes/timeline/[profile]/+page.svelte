@@ -113,9 +113,10 @@
     function displayTitle(item: HistoryItem) {
         return (
             preferredTitle(item.anilist?.title) ||
+            item.server?.title ||
             item.plex?.title ||
             (item.anilist_id ? `AniList ID: ${item.anilist_id}` : null) ||
-            (item.plex_guid ? item.plex_guid : "Unknown Title")
+            (item.server_guid || item.plex_guid || "Unknown Title")
         );
     }
 
@@ -124,6 +125,8 @@
             item.anilist?.coverImage?.large ||
             item.anilist?.coverImage?.medium ||
             item.anilist?.coverImage?.extraLarge ||
+            item.server?.thumb ||
+            item.server?.art ||
             item.plex?.thumb ||
             item.plex?.art ||
             null
@@ -135,8 +138,11 @@
     }
 
     function plexUrl(item: HistoryItem) {
-        if (!item.plex_guid) return null;
-        const cleanGuid = item.plex_guid.split("/").pop();
+        const provider = item.provider || "plex";
+        const guid = item.server_guid || item.plex_guid;
+        if (!guid) return null;
+        if (provider === "jellyfin") return null;
+        const cleanGuid = guid.split("/").pop();
         const key = encodeURIComponent(`/library/metadata/${cleanGuid}`);
         return `https://app.plex.tv/desktop/#!/provider/tv.plex.provider.discover/details?key=${key}`;
     }
@@ -186,7 +192,7 @@
 
     function canRetry(item: HistoryItem): boolean {
         return (
-            !!item.plex_rating_key &&
+            !!(item.server_rating_key || item.plex_rating_key) &&
             (item.outcome === "failed" || item.outcome === "not_found")
         );
     }
@@ -194,7 +200,8 @@
     async function retryHistory(item: HistoryItem) {
         if (!canRetry(item)) return toast("Retry not available for this entry", "warn");
         if (retryLoading[item.id]) return;
-        if (!item.plex_rating_key) return;
+        const serverRatingKey = item.server_rating_key || item.plex_rating_key;
+        if (!serverRatingKey) return;
         retryLoading[item.id] = true;
         try {
             const res = await apiFetch(
@@ -202,10 +209,10 @@
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ rating_keys: [item.plex_rating_key] }),
+                    body: JSON.stringify({ rating_keys: [serverRatingKey] }),
                 },
                 {
-                    successMessage: `Retry requested for ${item.plex?.title || item.plex_rating_key}`,
+                    successMessage: `Retry requested for ${item.server?.title || item.plex?.title || serverRatingKey}`,
                 },
             );
             if (!res.ok) throw new Error("HTTP " + res.status);

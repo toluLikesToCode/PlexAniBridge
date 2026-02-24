@@ -215,7 +215,7 @@
                             <span
                                 class="rounded-md bg-blue-900/50 px-2 py-1 text-xs text-slate-200"
                                 >{p.config.anilist_user} &rarr; {p.config
-                                    .plex_user}</span>
+                                    .media_server_user || p.config.plex_user}</span>
                         </div>
                         <div class="mt-1 text-xs text-slate-400">
                             {#if p.status?.last_synced}
