@@ -12,7 +12,6 @@
         TriangleAlert,
     } from "@lucide/svelte";
 
-    import { resolve } from "$app/paths";
     import YamlEditor from "$lib/components/code-editor/yaml-editor.svelte";
     import TailscaleLogo from "$lib/components/tailscale-logo.svelte";
     import type {
@@ -533,13 +532,15 @@
             <p>
                 <span class="text-slate-500">Tailnet address:</span>
                 {#if tailscaleStatus?.status === "connected" && tailscaleStatus?.tailnet_url}
+                    <!-- eslint-disable svelte/no-navigation-without-resolve -->
                     <a
-                        href={resolve(tailscaleStatus.tailnet_url)}
+                        href={tailscaleStatus.tailnet_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         class="ml-0.5 text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300">
                         {tailnetAddress()}
                     </a>
+                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 {:else}
                     {tailnetAddress()}
                 {/if}
