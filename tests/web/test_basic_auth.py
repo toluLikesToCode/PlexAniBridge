@@ -1,6 +1,8 @@
 """Tests for HTTP Basic Authentication middleware and integration."""
 
 import base64
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -231,3 +233,43 @@ def test_create_app_registers_basic_auth_middleware_with_htpasswd(
 
     middleware_classes = {middleware.cls for middleware in app.user_middleware}
     assert BasicAuthMiddleware in middleware_classes
+
+
+def test_create_app_root_redirect_supports_ipv6_hosts(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """Root redirect should preserve IPv6 hostnames when targeting Vite dev server."""
+
+    @asynccontextmanager
+    async def test_lifespan(_: FastAPI) -> AsyncGenerator:
+        yield
+
+    test_config = AnibridgeConfig(
+        web=WebConfig(
+            basic_auth=BasicAuthConfig(
+                username=None,
+                password=None,
+                htpasswd_path=None,
+                realm="Realm",
+            )
+        )
+    )
+    monkeypatch.setattr(app_module, "config", test_config, raising=False)
+    monkeypatch.setattr(app_module, "lifespan", test_lifespan, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "FRONTEND_BUILD_DIR",
+        tmp_path / "missing-build-dir",
+        raising=False,
+    )
+
+    app = app_module.create_app()
+    with TestClient(app) as client:
+        response = client.get(
+            "/",
+            headers={"host": "[fd7a:115c:a1e0::abcd]:4848"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "http://[fd7a:115c:a1e0::abcd]:5173/"

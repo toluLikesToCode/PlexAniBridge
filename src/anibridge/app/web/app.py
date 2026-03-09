@@ -126,7 +126,9 @@ def create_app(scheduler: SchedulerClient | None = None) -> FastAPI:
         async def root_redirect(request: Request) -> RedirectResponse:
             # In dev mode the SPA runs on the Vite dev server (port 5173).
             # Redirect using the same hostname so tailnet devices reach the UI.
-            host = request.headers.get("host", "").split(":")[0]
+            host = request.url.hostname or "localhost"
+            if ":" in host:
+                host = f"[{host}]"
             return RedirectResponse(url=f"http://{host}:5173/")
 
         log.warning(
