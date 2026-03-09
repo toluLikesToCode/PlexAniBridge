@@ -55,6 +55,7 @@ class TailscaleService:
         self._daemon: asyncio.subprocess.Process | None = None
         self._up_process: asyncio.subprocess.Process | None = None
         self._health_task: asyncio.Task[None] | None = None
+        self._up_monitor_task: asyncio.Task[None] | None = None
 
         self._initialized = False
         self._enabled = False
@@ -196,9 +197,7 @@ class TailscaleService:
 
         effective_hostname = self._hostname or self._compute_default_hostname()
         tailnet_url = (
-            f"http://{dns_name.rstrip('.')}:{config.web.port}/"
-            if dns_name
-            else None
+            f"http://{dns_name.rstrip('.')}:{config.web.port}/" if dns_name else None
         )
 
         if not self._enabled:
@@ -368,7 +367,7 @@ class TailscaleService:
         # process here — just grab that first line and return.
         auth_url: str | None = None
         try:
-            assert process.stdout is not None  # noqa: S101
+            assert process.stdout is not None
             raw = await asyncio.wait_for(process.stdout.readline(), timeout=15.0)
             line = raw.decode("utf-8", errors="replace").strip()
             if line:
@@ -389,8 +388,9 @@ class TailscaleService:
             if process.returncode == 0:
                 self._up_process = None
                 return None
-            assert process.stderr is not None  # noqa: S101
-            err = (await process.stderr.read()).decode("utf-8", errors="replace").strip()
+            assert process.stderr is not None
+            stderr_bytes = await process.stderr.read()
+            err = stderr_bytes.decode("utf-8", errors="replace").strip()
             self._up_process = None
             raise RuntimeError(err or "tailscale up failed")
 
@@ -398,7 +398,7 @@ class TailscaleService:
             self._last_auth_url = auth_url
 
         # Regardless of whether we got a URL, monitor the background process.
-        asyncio.create_task(
+        self._up_monitor_task = asyncio.create_task(
             self._monitor_up_completion(),
             name="tailscale-up-completion",
         )
