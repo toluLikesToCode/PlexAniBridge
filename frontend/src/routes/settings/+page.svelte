@@ -407,6 +407,37 @@
         window.open(tailscaleStatus.auth_url, "_blank", "noopener,noreferrer");
     }
 
+    function tailscaleHealthInfo(): { text: string; tooltip: string | null } | null {
+        if (!tailscaleStatus?.health?.length) return null;
+
+        const joinedHealth = tailscaleStatus.health.join(" · ");
+        const hasStoppedWarning = tailscaleStatus.health.some(
+            (entry) => entry.trim().toLowerCase() === "tailscale is stopped.",
+        );
+
+        if (!hasStoppedWarning) {
+            return { text: joinedHealth, tooltip: joinedHealth };
+        }
+
+        if (
+            tailscaleStatus.backend_state === "NeedsLogin" ||
+            tailscaleStatus.status === "awaiting_auth"
+        ) {
+            return { text: "Needs login", tooltip: "Needs login" };
+        }
+
+        const readyToConnect =
+            tailscaleStatus.enabled && tailscaleStatus.status !== "connected";
+        if (readyToConnect) {
+            return {
+                text: "Tailscale is stopped.",
+                tooltip: "tailscale stopped press connect to establish connection",
+            };
+        }
+
+        return { text: joinedHealth, tooltip: joinedHealth };
+    }
+
     const LANG_OPTS: TitleLanguage[] = ["romaji", "english", "native"];
 
     function setLang(v: TitleLanguage) {
@@ -684,11 +715,13 @@
                     class="mt-2 flex items-start gap-1.5 text-[11px] transition-all duration-300">
                     {#if tailscaleStatus.status === "connected" && !tailscaleStatus.health?.length}
                         <CircleCheck class="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
-                        <span class="text-emerald-300">All systems nominal</span>
-                    {:else if tailscaleStatus.health?.length}
+                        <span class="text-emerald-300">Connected</span>
+                    {:else if tailscaleHealthInfo()}
                         <TriangleAlert class="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
-                        <span class="text-amber-200"
-                            >{tailscaleStatus.health.join(" · ")}</span>
+                        <span
+                            class="text-amber-200"
+                            title={tailscaleHealthInfo()?.tooltip ?? undefined}
+                            >{tailscaleHealthInfo()?.text}</span>
                     {:else}
                         <span class="text-slate-600">Health: —</span>
                     {/if}
