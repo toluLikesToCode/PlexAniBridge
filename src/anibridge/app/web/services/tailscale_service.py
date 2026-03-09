@@ -406,12 +406,18 @@ class TailscaleService:
     async def _stop_up_process_locked(self) -> None:
         """Terminate the background `tailscale up` process if running."""
         proc = self._up_process
-        self._up_process = None
         if proc is None or proc.returncode is not None:
+            self._up_process = None
             return
         proc.terminate()
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.wait_for(proc.wait(), timeout=3.0)
+        except TimeoutError:
+            proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.wait()
+        finally:
+            self._up_process = None
 
     async def _monitor_up_completion(self) -> None:
         """Background task: detect when `tailscale up` finishes (auth complete)."""

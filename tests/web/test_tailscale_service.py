@@ -3,7 +3,7 @@
 import base64
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -141,3 +141,26 @@ async def test_login_updates_auth_url_and_enabled_flag(
     assert payload["enabled"] is True
     assert payload["auth_url"] == "https://login.tailscale.com/a/example"
     assert _get_housekeeping(TailscaleService._ENABLED_KEY) == "1"
+
+
+@pytest.mark.asyncio
+async def test_stop_up_process_force_kills_when_terminate_times_out(
+    tmp_path: Path,
+) -> None:
+    """Timed out `tailscale up` termination should escalate to kill."""
+    service = TailscaleService(data_path=tmp_path)
+    process = SimpleNamespace(
+        returncode=None,
+        terminate=Mock(),
+        kill=Mock(),
+        wait=AsyncMock(side_effect=[TimeoutError(), None]),
+    )
+    service._up_process = process
+
+    async with service._lock:
+        await service._stop_up_process_locked()
+
+    process.terminate.assert_called_once()
+    process.kill.assert_called_once()
+    assert process.wait.call_count == 2
+    assert service._up_process is None
