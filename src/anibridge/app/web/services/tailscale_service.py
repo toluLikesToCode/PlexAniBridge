@@ -104,11 +104,10 @@ class TailscaleService:
             if hostname is not None:
                 self._hostname = self._normalize_hostname(hostname)
 
+            await self._start_daemon_locked()
             self._enabled = True
             self._save_enabled_locked(self._enabled)
             self._save_hostname_locked(self._hostname)
-
-            await self._start_daemon_locked()
             self._ensure_health_task_locked()
 
             return await self._status_locked(refresh_daemon=True)
@@ -129,9 +128,9 @@ class TailscaleService:
         """Run `tailscale up` and return updated status."""
         await self.initialize()
         async with self._lock:
+            await self._start_daemon_locked()
             self._enabled = True
             self._save_enabled_locked(self._enabled)
-            await self._start_daemon_locked()
             self._ensure_health_task_locked()
             auth_url = await self._run_up_locked()
             if auth_url:

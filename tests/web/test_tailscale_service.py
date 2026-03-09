@@ -3,6 +3,7 @@
 import base64
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -65,6 +66,25 @@ async def test_enable_persists_hostname_and_enabled_flag(
     assert payload["hostname"] == "ani-node"
     assert _get_housekeeping(TailscaleService._ENABLED_KEY) == "1"
     assert _get_housekeeping(TailscaleService._HOSTNAME_KEY) == "ani-node"
+
+
+@pytest.mark.asyncio
+async def test_enable_does_not_persist_enabled_flag_when_start_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Failed daemon start should not leave enabled state persisted."""
+    service = TailscaleService(data_path=tmp_path)
+    monkeypatch.setattr(
+        service,
+        "_start_daemon_locked",
+        AsyncMock(side_effect=FileNotFoundError("tailscaled not found")),
+    )
+
+    with pytest.raises(FileNotFoundError):
+        await service.enable("ani-node")
+
+    assert service._enabled is False
+    assert _get_housekeeping(TailscaleService._ENABLED_KEY) is None
 
 
 @pytest.mark.asyncio
