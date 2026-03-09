@@ -22,6 +22,7 @@
         TailscaleLoginResponse,
         TailscaleStatusResponse,
     } from "$lib/types/api";
+    import Modal from "$lib/ui/modal.svelte";
     import {
         anilistTitleLang,
         setAniListTitleLang,
@@ -59,6 +60,7 @@
     let tailscaleStatus = $state<TailscaleStatusResponse | null>(null);
     let tailscaleHostname = $state("");
     let tailscalePollTimer: ReturnType<typeof setInterval> | null = null;
+    let showDisableConfirm = $state(false);
 
     // Adaptive polling: 3 s when transitional, off when stable.
     $effect(() => {
@@ -310,6 +312,7 @@
 
     async function disableTailscale() {
         if (tailscaleBusy || tailscaleLoading) return;
+        showDisableConfirm = false;
         tailscaleBusy = true;
         tailscaleError = null;
         try {
@@ -768,7 +771,7 @@
                 <button
                     type="button"
                     class="inline-flex items-center gap-1 rounded border border-rose-600 bg-rose-700 px-3 py-1 font-semibold text-white transition-all duration-200 hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                    onclick={disableTailscale}
+                    onclick={() => (showDisableConfirm = true)}
                     disabled={tailscaleLoading || tailscaleBusy || !tailscaleEnabled}>
                     Disable
                 </button>
@@ -852,3 +855,30 @@
         </div>
     </details>
 </div>
+
+<!-- Disable Tailscale Confirmation Modal -->
+<Modal bind:open={showDisableConfirm}>
+    {#snippet titleChildren()}
+        Disable Tailscale?
+    {/snippet}
+    <div class="px-4 pb-4 text-sm text-slate-300">
+        This will disconnect AniBridge from your tailnet. You can re-enable without
+        re-authorizing.
+    </div>
+    {#snippet footerChildren()}
+        <div class="flex justify-end gap-2 border-t border-slate-700/50 px-4 py-3">
+            <button
+                type="button"
+                class="rounded border border-slate-600 bg-slate-700 px-4 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-600"
+                onclick={() => (showDisableConfirm = false)}>
+                Cancel
+            </button>
+            <button
+                type="button"
+                class="rounded border border-rose-600 bg-rose-700 px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-rose-600"
+                onclick={disableTailscale}>
+                Disable Tailscale
+            </button>
+        </div>
+    {/snippet}
+</Modal>
