@@ -121,6 +121,7 @@ def create_app(scheduler: SchedulerClient | None = None) -> FastAPI:
 
     index_file = FRONTEND_BUILD_DIR / "index.html"
     if not FRONTEND_BUILD_DIR.exists():
+
         @app.get("/", include_in_schema=False)
         async def root_redirect(request: Request) -> RedirectResponse:
             # In dev mode the SPA runs on the Vite dev server (port 5173).

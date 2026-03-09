@@ -12,6 +12,7 @@
         TriangleAlert,
     } from "@lucide/svelte";
 
+    import { resolve } from "$app/paths";
     import YamlEditor from "$lib/components/code-editor/yaml-editor.svelte";
     import TailscaleLogo from "$lib/components/tailscale-logo.svelte";
     import type {
@@ -77,7 +78,6 @@
 
     const hasChanges = $derived(editorValue !== initialValue);
     const tailscaleEnabled = $derived(tailscaleStatus?.enabled ?? false);
-    const tailscaleAuthenticated = $derived(tailscaleStatus?.authenticated ?? false);
 
     let restartPollGeneration = 0;
 
@@ -534,9 +534,9 @@
                 <span class="text-slate-500">Tailnet address:</span>
                 {#if tailscaleStatus?.status === "connected" && tailscaleStatus?.tailnet_url}
                     <a
-                        href={tailscaleStatus.tailnet_url}
+                        href={resolve(tailscaleStatus.tailnet_url)}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         class="ml-0.5 text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300">
                         {tailnetAddress()}
                     </a>
