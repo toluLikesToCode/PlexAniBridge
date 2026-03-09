@@ -12,8 +12,8 @@
         TriangleAlert,
     } from "@lucide/svelte";
 
-    import TailscaleLogo from "$lib/components/tailscale-logo.svelte";
     import YamlEditor from "$lib/components/code-editor/yaml-editor.svelte";
+    import TailscaleLogo from "$lib/components/tailscale-logo.svelte";
     import type {
         ConfigDocumentResponse,
         ConfigDocumentUpdateRequest,
@@ -484,7 +484,9 @@
                 <div class="flex items-center gap-2">
                     <TailscaleLogo class="h-5 w-5 text-[#4B86FF]" />
                     <h3 class="text-sm font-semibold text-slate-100">Tailscale</h3>
-                    <span class="rounded bg-slate-700/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Beta</span>
+                    <span
+                        class="rounded bg-slate-700/80 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-slate-400 uppercase"
+                        >Beta</span>
                 </div>
                 <p class="mt-1 text-[11px] text-slate-500">
                     Userspace tailnet access without privileged container flags.
@@ -517,7 +519,10 @@
         <div class="mt-3 grid gap-2 text-[11px] text-slate-300 sm:grid-cols-2">
             <p>
                 <span class="text-slate-500">Daemon:</span>
-                <span class={tailscaleStatus?.daemon_running ? "text-emerald-300" : "text-slate-400"}>
+                <span
+                    class={tailscaleStatus?.daemon_running
+                        ? "text-emerald-300"
+                        : "text-slate-400"}>
                     {tailscaleStatus?.daemon_running ? "Running" : "Stopped"}
                 </span>
             </p>
@@ -547,13 +552,15 @@
 
         <!-- Health row — always shown when enabled -->
         {#if tailscaleStatus && tailscaleStatus.status !== "disabled"}
-            <div class="mt-2 flex items-start gap-1.5 text-[11px] transition-all duration-300">
+            <div
+                class="mt-2 flex items-start gap-1.5 text-[11px] transition-all duration-300">
                 {#if tailscaleStatus.status === "connected" && !tailscaleStatus.health?.length}
                     <CircleCheck class="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
                     <span class="text-emerald-300">All systems nominal</span>
                 {:else if tailscaleStatus.health?.length}
                     <TriangleAlert class="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
-                    <span class="text-amber-200">{tailscaleStatus.health.join(" · ")}</span>
+                    <span class="text-amber-200"
+                        >{tailscaleStatus.health.join(" · ")}</span>
                 {:else}
                     <span class="text-slate-600">Health: —</span>
                 {/if}
@@ -562,15 +569,20 @@
 
         <!-- Persistent auth URL (shown whenever awaiting auth, not just during connect flow) -->
         {#if tailscaleStatus?.auth_url && tailscaleStatus.status === "awaiting_auth"}
-            <div class="mt-3 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px]">
-                <p class="font-medium text-blue-200">Authentication required — open this URL to authorize:</p>
+            <div
+                class="mt-3 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px]">
+                <p class="font-medium text-blue-200">
+                    Authentication required — open this URL to authorize:
+                </p>
                 <button
                     type="button"
-                    class="mt-1 break-all text-left text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300"
+                    class="mt-1 text-left break-all text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300"
                     onclick={openTailscaleAuthUrl}>
                     {tailscaleStatus.auth_url}
                 </button>
-                <p class="mt-1 text-slate-500">The page will update automatically once authorized.</p>
+                <p class="mt-1 text-slate-500">
+                    The page will update automatically once authorized.
+                </p>
             </div>
         {/if}
 
@@ -581,7 +593,8 @@
                 class="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-100 transition-all duration-200 hover:bg-slate-800/60 disabled:opacity-50"
                 onclick={loadTailscale}
                 disabled={tailscaleLoading || tailscaleBusy}>
-                <RefreshCw class={`h-3.5 w-3.5 transition-transform duration-500 ${tailscaleLoading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                    class={`h-3.5 w-3.5 transition-transform duration-500 ${tailscaleLoading ? "animate-spin" : ""}`} />
                 Refresh
             </button>
             <button
@@ -631,8 +644,9 @@
 
         <!-- Connecting progress banner (only during active connection attempt, before URL appears) -->
         {#if tailscaleConnecting && tailscaleStatus?.status !== "awaiting_auth"}
-            <div class="mt-3 flex items-center gap-2 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px] text-blue-200">
-                <LoaderCircle class="h-3.5 w-3.5 animate-spin shrink-0" />
+            <div
+                class="mt-3 flex items-center gap-2 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px] text-blue-200">
+                <LoaderCircle class="h-3.5 w-3.5 shrink-0 animate-spin" />
                 <span>
                     {#if !tailscaleStatus?.daemon_running}
                         Starting Tailscale daemon…
@@ -663,7 +677,9 @@
                 type="button"
                 class="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-100 transition-all duration-200 hover:bg-slate-800/60 disabled:opacity-50"
                 onclick={saveTailscaleHostname}
-                disabled={tailscaleLoading || tailscaleBusy || !tailscaleHostname.trim()}>
+                disabled={tailscaleLoading ||
+                    tailscaleBusy ||
+                    !tailscaleHostname.trim()}>
                 Save Hostname
             </button>
         </div>
