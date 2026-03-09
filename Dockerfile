@@ -43,7 +43,7 @@ RUN pnpm build
 
 FROM alpine:3.23
 
-RUN apk add --no-cache shadow su-exec tzdata
+RUN apk add --no-cache shadow su-exec tailscale tzdata
 
 LABEL maintainer="Elias Benbourenane <eliasbenbourenane@gmail.com>" \
     org.opencontainers.image.title="AniBridge" \

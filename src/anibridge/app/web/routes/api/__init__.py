@@ -11,6 +11,7 @@ from anibridge.app.web.routes.api.pins import router as pins_router
 from anibridge.app.web.routes.api.status import router as status_router
 from anibridge.app.web.routes.api.sync import router as sync_router
 from anibridge.app.web.routes.api.system import router as system_router
+from anibridge.app.web.routes.api.tailscale import router as tailscale_router
 
 __all__ = ["router"]
 
@@ -26,3 +27,4 @@ router.include_router(status_router, prefix="/status", tags=["status"])
 router.include_router(sync_router, prefix="/sync", tags=["sync"])
 router.include_router(system_router, prefix="/system", tags=["system"])
 router.include_router(config_router, prefix="/config", tags=["config"])
+router.include_router(tailscale_router, prefix="/tailscale", tags=["tailscale"])

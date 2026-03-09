@@ -1,3 +1,10 @@
+import type {
+    TailscaleActionResponse,
+    TailscaleEnableRequest,
+    TailscaleHostnameRequest,
+    TailscaleLoginResponse,
+    TailscaleStatusResponse,
+} from "$lib/types/api";
 import { toast, type ToastType } from "$lib/utils/notify";
 
 export function isAbortError(error: unknown): boolean {
@@ -76,4 +83,58 @@ export async function apiJson<T = unknown>(
         return JSON.parse(text) as T; // may throw which is fine
     }
     return (await r.json()) as T;
+}
+
+async function ensureOkJson<T>(response: Response): Promise<T> {
+    const payload = (await response
+        .json()
+        .catch(() => ({ detail: `HTTP ${response.status}` }))) as T & ApiErrorData;
+    if (!response.ok) {
+        throw new Error(extractMessage(payload, response.status));
+    }
+    return payload as T;
+}
+
+export async function getTailscaleStatus(): Promise<TailscaleStatusResponse> {
+    const response = await apiFetch("/api/tailscale/status", undefined, {
+        silent: true,
+    });
+    return ensureOkJson<TailscaleStatusResponse>(response);
+}
+
+export async function enableTailscale(
+    payload: TailscaleEnableRequest,
+): Promise<TailscaleActionResponse> {
+    const response = await apiFetch("/api/tailscale/enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    return ensureOkJson<TailscaleActionResponse>(response);
+}
+
+export async function disableTailscale(): Promise<TailscaleActionResponse> {
+    const response = await apiFetch("/api/tailscale/disable", { method: "POST" });
+    return ensureOkJson<TailscaleActionResponse>(response);
+}
+
+export async function loginTailscale(): Promise<TailscaleLoginResponse> {
+    const response = await apiFetch("/api/tailscale/login", { method: "POST" });
+    return ensureOkJson<TailscaleLoginResponse>(response);
+}
+
+export async function logoutTailscale(): Promise<TailscaleActionResponse> {
+    const response = await apiFetch("/api/tailscale/logout", { method: "POST" });
+    return ensureOkJson<TailscaleActionResponse>(response);
+}
+
+export async function updateTailscaleHostname(
+    payload: TailscaleHostnameRequest,
+): Promise<TailscaleActionResponse> {
+    const response = await apiFetch("/api/tailscale/hostname", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    return ensureOkJson<TailscaleActionResponse>(response);
 }

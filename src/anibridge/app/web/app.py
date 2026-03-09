@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from fastapi.applications import FastAPI
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
@@ -21,6 +21,7 @@ from anibridge.app.web.middlewares.basic_auth import BasicAuthMiddleware
 from anibridge.app.web.middlewares.request_logging import RequestLoggingMiddleware
 from anibridge.app.web.routes import router
 from anibridge.app.web.services.logging_handler import get_log_ws_handler
+from anibridge.app.web.services.tailscale_service import get_tailscale_service
 from anibridge.app.web.state import get_app_state
 
 __all__ = ["create_app"]
@@ -38,18 +39,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     Returns:
         AsyncGenerator: The application lifespan context manager.
     """
+    app_state = get_app_state()
     scheduler: SchedulerClient | None = app.extra.get("scheduler")
     if scheduler is None:
         log.info("Web - No scheduler passed; external lifecycle management expected")
     else:
-        get_app_state().set_scheduler(scheduler)
+        app_state.set_scheduler(scheduler)
         if not scheduler._running:
             await scheduler.initialize()
             await scheduler.start()
             log.success("Web - Scheduler started for web UI")
 
+    tailscale_service = get_tailscale_service()
+    app_state.set_tailscale_service(tailscale_service)
+    app_state.add_shutdown_callback(tailscale_service.shutdown)
     try:
-        await get_app_state().ensure_public_anilist()
+        await tailscale_service.initialize()
+    except Exception:
+        log.exception("Web - Failed to initialize Tailscale service")
+
+    try:
+        await app_state.ensure_public_anilist()
     except Exception:
         log.debug("Web - Failed to initialize public AniList client at startup")
 
@@ -65,7 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     try:
         yield
     finally:
-        await get_app_state().shutdown()
+        await app_state.shutdown()
         if scheduler and scheduler._running:
             await scheduler.stop()
 
@@ -111,6 +121,13 @@ def create_app(scheduler: SchedulerClient | None = None) -> FastAPI:
 
     index_file = FRONTEND_BUILD_DIR / "index.html"
     if not FRONTEND_BUILD_DIR.exists():
+        @app.get("/", include_in_schema=False)
+        async def root_redirect(request: Request) -> RedirectResponse:
+            # In dev mode the SPA runs on the Vite dev server (port 5173).
+            # Redirect using the same hostname so tailnet devices reach the UI.
+            host = request.headers.get("host", "").split(":")[0]
+            return RedirectResponse(url=f"http://{host}:5173/")
+
         log.warning(
             "Web - Frontend build directory does not exist, no SPA will be served"
         )

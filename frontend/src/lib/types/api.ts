@@ -251,6 +251,50 @@ export interface RestartResponse {
     message: string;
 }
 
+// --- Tailscale API ---
+export type TailscalePhase =
+    | "disabled"
+    | "starting"
+    | "awaiting_auth"
+    | "connected"
+    | "error";
+
+export interface TailscaleStatusResponse {
+    enabled: boolean;
+    daemon_running: boolean;
+    authenticated: boolean;
+    status: TailscalePhase;
+    backend_state?: string | null;
+    hostname?: string | null;
+    advertised_hostname?: string | null;
+    dns_name?: string | null;
+    tailnet?: string | null;
+    ips: string[];
+    online: boolean;
+    health: string[];
+    auth_url?: string | null;
+    tailnet_url?: string | null;
+    last_error?: string | null;
+    exit_nodes_supported: boolean;
+}
+
+export interface TailscaleEnableRequest {
+    hostname?: string | null;
+}
+
+export interface TailscaleHostnameRequest {
+    hostname?: string | null;
+}
+
+export interface TailscaleActionResponse {
+    ok: boolean;
+    status: TailscaleStatusResponse;
+}
+
+export interface TailscaleLoginResponse extends TailscaleActionResponse {
+    auth_url?: string | null;
+}
+
 // --- History API ---
 export interface HistoryItem {
     id: number;

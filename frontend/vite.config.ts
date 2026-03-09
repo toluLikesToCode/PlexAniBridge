@@ -57,6 +57,7 @@ export default defineConfig({
         }),
     ],
     server: {
+        allowedHosts: true,
         proxy: {
             "/api": { target: "http://localhost:4848", changeOrigin: true },
             "/ws": { target: "http://localhost:4848", changeOrigin: true, ws: true },

@@ -19,6 +19,7 @@ __all__ = ["AppState", "get_app_state", "get_bridge"]
 if TYPE_CHECKING:
     from anibridge.app.core.bridge import BridgeClient
     from anibridge.app.core.sched import SchedulerClient
+    from anibridge.app.web.services.tailscale_service import TailscaleService
 
 
 class AppState:
@@ -28,6 +29,7 @@ class AppState:
         """Initialize empty state containers and record process start time."""
         self.scheduler: SchedulerClient | None = None
         self.public_anilist: AniListClient | None = None
+        self.tailscale_service: TailscaleService | None = None
         self.on_shutdown_callbacks: list[Callable[[], Any]] = []
         self.started_at: datetime = datetime.now(UTC)
         self.restart_requested: bool = False
@@ -46,7 +48,13 @@ class AppState:
         Args:
             cb (Callable[[], Any]): The callback function to register.
         """
+        if cb in self.on_shutdown_callbacks:
+            return
         self.on_shutdown_callbacks.append(cb)
+
+    def set_tailscale_service(self, service: TailscaleService) -> None:
+        """Set the Tailscale service instance used by web routes."""
+        self.tailscale_service = service
 
     def request_restart(self) -> None:
         """Mark that a full process restart was requested."""

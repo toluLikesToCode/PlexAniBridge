@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
 
     import {
+        CircleCheck,
         Info,
         Languages,
         LoaderCircle,
@@ -11,18 +12,31 @@
         TriangleAlert,
     } from "@lucide/svelte";
 
+    import TailscaleLogo from "$lib/components/tailscale-logo.svelte";
     import YamlEditor from "$lib/components/code-editor/yaml-editor.svelte";
     import type {
         ConfigDocumentResponse,
         ConfigDocumentUpdateRequest,
         ConfigUpdateResponse,
+        TailscaleActionResponse,
+        TailscaleLoginResponse,
+        TailscaleStatusResponse,
     } from "$lib/types/api";
     import {
         anilistTitleLang,
         setAniListTitleLang,
         type TitleLanguage,
     } from "$lib/utils/anilist";
-    import { apiFetch, apiJson } from "$lib/utils/api";
+    import {
+        disableTailscale as apiDisableTailscale,
+        enableTailscale as apiEnableTailscale,
+        apiFetch,
+        apiJson,
+        loginTailscale as apiLoginTailscale,
+        logoutTailscale as apiLogoutTailscale,
+        updateTailscaleHostname as apiUpdateTailscaleHostname,
+        getTailscaleStatus,
+    } from "$lib/utils/api";
     import { toast } from "$lib/utils/notify";
 
     let loading = $state(true);
@@ -38,17 +52,59 @@
     let initialValue = $state("");
     let configSchema = $state<Record<string, unknown> | null>(null);
     let mtime: number | null = null;
+    let tailscaleLoading = $state(true);
+    let tailscaleBusy = $state(false);
+    let tailscaleConnecting = $state(false);
+    let tailscaleError: string | null = $state(null);
+    let tailscaleStatus = $state<TailscaleStatusResponse | null>(null);
+    let tailscaleHostname = $state("");
+    let tailscalePollTimer: ReturnType<typeof setInterval> | null = null;
+
+    // Adaptive polling: 3 s when transitional, off when stable.
+    $effect(() => {
+        const phase = tailscaleStatus?.status;
+        const transitional = phase === "starting" || phase === "awaiting_auth";
+        if (transitional && tailscalePollTimer === null && !tailscaleBusy) {
+            tailscalePollTimer = setInterval(async () => {
+                try {
+                    applyTailscaleStatus(await getTailscaleStatus());
+                } catch {}
+            }, 3000);
+        } else if (!transitional && !tailscaleConnecting) {
+            stopTailscalePolling();
+        }
+    });
 
     const hasChanges = $derived(editorValue !== initialValue);
+    const tailscaleEnabled = $derived(tailscaleStatus?.enabled ?? false);
+    const tailscaleAuthenticated = $derived(tailscaleStatus?.authenticated ?? false);
 
     let restartPollGeneration = 0;
 
     onMount(() => {
-        void loadConfig();
+        void Promise.all([loadConfig(), loadTailscale()]);
         return () => {
             restartPollGeneration += 1;
+            stopTailscalePolling();
         };
     });
+
+    function stopTailscalePolling() {
+        if (tailscalePollTimer !== null) {
+            clearInterval(tailscalePollTimer);
+            tailscalePollTimer = null;
+        }
+    }
+
+    function startTailscalePolling() {
+        stopTailscalePolling();
+        tailscalePollTimer = setInterval(async () => {
+            try {
+                const status = await getTailscaleStatus();
+                applyTailscaleStatus(status);
+            } catch {}
+        }, 2000);
+    }
 
     async function waitForServerAndRefresh() {
         const generation = ++restartPollGeneration;
@@ -209,6 +265,149 @@
         return `Request failed (${statusCode})`;
     }
 
+    function applyTailscaleStatus(status: TailscaleStatusResponse) {
+        tailscaleStatus = status;
+        // If auth completed in the background, clear the connecting flag
+        if (tailscaleConnecting && status.status === "connected") {
+            tailscaleConnecting = false;
+        }
+    }
+
+    function applyTailscaleMutation(
+        response: TailscaleActionResponse | TailscaleLoginResponse,
+    ) {
+        applyTailscaleStatus(response.status);
+    }
+
+    async function loadTailscale() {
+        tailscaleLoading = true;
+        tailscaleError = null;
+        try {
+            const status = await getTailscaleStatus();
+            applyTailscaleStatus(status);
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            tailscaleLoading = false;
+        }
+    }
+
+    async function enableTailscale() {
+        if (tailscaleBusy || tailscaleLoading) return;
+        tailscaleBusy = true;
+        tailscaleError = null;
+        try {
+            const response = await apiEnableTailscale({
+                hostname: tailscaleHostname.trim() || undefined,
+            });
+            applyTailscaleMutation(response);
+            toast("Tailscale enabled.", "success");
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            tailscaleBusy = false;
+        }
+    }
+
+    async function disableTailscale() {
+        if (tailscaleBusy || tailscaleLoading) return;
+        tailscaleBusy = true;
+        tailscaleError = null;
+        try {
+            const response = await apiDisableTailscale();
+            applyTailscaleMutation(response);
+            toast("Tailscale disabled.", "success");
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            tailscaleBusy = false;
+        }
+    }
+
+    async function connectTailscale() {
+        if (tailscaleBusy || tailscaleLoading || !tailscaleEnabled) return;
+        tailscaleBusy = true;
+        tailscaleConnecting = true;
+        tailscaleError = null;
+        startTailscalePolling();
+        try {
+            const response = await apiLoginTailscale();
+            applyTailscaleMutation(response);
+            if (response.auth_url) {
+                toast("Open the Tailscale auth URL to finish login.", "info");
+            } else {
+                toast("Tailscale login completed.", "success");
+            }
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            stopTailscalePolling();
+            tailscaleConnecting = false;
+            tailscaleBusy = false;
+        }
+    }
+
+    async function logoutTailscale() {
+        if (tailscaleBusy || tailscaleLoading || !tailscaleEnabled) return;
+        tailscaleBusy = true;
+        tailscaleError = null;
+        if (tailscaleStatus) {
+            tailscaleStatus = { ...tailscaleStatus, auth_url: null };
+        }
+        try {
+            const response = await apiLogoutTailscale();
+            applyTailscaleMutation(response);
+            toast("Tailscale session cleared.", "success");
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            tailscaleBusy = false;
+        }
+    }
+
+    async function saveTailscaleHostname() {
+        if (tailscaleBusy || tailscaleLoading || !tailscaleHostname.trim()) return;
+        tailscaleBusy = true;
+        tailscaleError = null;
+        try {
+            const response = await apiUpdateTailscaleHostname({
+                hostname: tailscaleHostname.trim(),
+            });
+            applyTailscaleMutation(response);
+            tailscaleHostname = "";
+            toast("Tailscale hostname updated.", "success");
+        } catch (error) {
+            tailscaleError = formatError(error);
+        } finally {
+            tailscaleBusy = false;
+        }
+    }
+
+    function tailscaleBadgeLabel(): string {
+        if (tailscaleLoading) return "Loading";
+        if (!tailscaleStatus) return "Unavailable";
+        const labels: Record<string, string> = {
+            disabled: "Disabled",
+            starting: "Starting",
+            awaiting_auth: "Needs Login",
+            connected: "Connected",
+            error: "Error",
+        };
+        return labels[tailscaleStatus.status] ?? "Unknown";
+    }
+
+    function tailnetAddress(): string {
+        if (!tailscaleStatus) return "—";
+        if (tailscaleStatus.dns_name) return tailscaleStatus.dns_name;
+        if (tailscaleStatus.ips.length > 0) return tailscaleStatus.ips[0];
+        return "—";
+    }
+
+    function openTailscaleAuthUrl() {
+        if (!tailscaleStatus?.auth_url) return;
+        window.open(tailscaleStatus.auth_url, "_blank", "noopener,noreferrer");
+    }
+
     const LANG_OPTS: TitleLanguage[] = ["romaji", "english", "native"];
 
     function setLang(v: TitleLanguage) {
@@ -275,6 +474,203 @@
                 {saving ? "Saving…" : "Save"}
             </button>
         </div>
+    </div>
+
+    <div
+        class="rounded border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-200">
+        <!-- Header -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <div class="flex items-center gap-2">
+                    <TailscaleLogo class="h-5 w-5 text-[#4B86FF]" />
+                    <h3 class="text-sm font-semibold text-slate-100">Tailscale</h3>
+                    <span class="rounded bg-slate-700/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Beta</span>
+                </div>
+                <p class="mt-1 text-[11px] text-slate-500">
+                    Userspace tailnet access without privileged container flags.
+                </p>
+            </div>
+            <span
+                class={`rounded-full px-2 py-1 text-[10px] font-semibold tracking-wide uppercase transition-all duration-300 ${
+                    tailscaleStatus?.status === "connected"
+                        ? "bg-emerald-500/20 text-emerald-300"
+                        : tailscaleStatus?.status === "error"
+                          ? "bg-rose-500/20 text-rose-300"
+                          : tailscaleEnabled
+                            ? "bg-amber-500/20 text-amber-200"
+                            : "bg-slate-700/80 text-slate-400"
+                }`}>
+                {tailscaleBadgeLabel()}
+            </span>
+        </div>
+
+        <!-- Action error -->
+        {#if tailscaleError}
+            <div
+                class="mt-3 flex items-center gap-2 rounded border border-rose-900/60 bg-rose-950/60 px-3 py-2 text-[11px] text-rose-100 transition-all duration-200">
+                <TriangleAlert class="h-3.5 w-3.5 shrink-0" />
+                {tailscaleError}
+            </div>
+        {/if}
+
+        <!-- Status grid -->
+        <div class="mt-3 grid gap-2 text-[11px] text-slate-300 sm:grid-cols-2">
+            <p>
+                <span class="text-slate-500">Daemon:</span>
+                <span class={tailscaleStatus?.daemon_running ? "text-emerald-300" : "text-slate-400"}>
+                    {tailscaleStatus?.daemon_running ? "Running" : "Stopped"}
+                </span>
+            </p>
+            <p>
+                <span class="text-slate-500">Backend state:</span>
+                {tailscaleStatus?.backend_state ?? "—"}
+            </p>
+            <p>
+                <span class="text-slate-500">Tailnet address:</span>
+                {#if tailscaleStatus?.status === "connected" && tailscaleStatus?.tailnet_url}
+                    <a
+                        href={tailscaleStatus.tailnet_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="ml-0.5 text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300">
+                        {tailnetAddress()}
+                    </a>
+                {:else}
+                    {tailnetAddress()}
+                {/if}
+            </p>
+            <p>
+                <span class="text-slate-500">Advertised host:</span>
+                {tailscaleStatus?.advertised_hostname ?? "—"}
+            </p>
+        </div>
+
+        <!-- Health row — always shown when enabled -->
+        {#if tailscaleStatus && tailscaleStatus.status !== "disabled"}
+            <div class="mt-2 flex items-start gap-1.5 text-[11px] transition-all duration-300">
+                {#if tailscaleStatus.status === "connected" && !tailscaleStatus.health?.length}
+                    <CircleCheck class="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+                    <span class="text-emerald-300">All systems nominal</span>
+                {:else if tailscaleStatus.health?.length}
+                    <TriangleAlert class="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
+                    <span class="text-amber-200">{tailscaleStatus.health.join(" · ")}</span>
+                {:else}
+                    <span class="text-slate-600">Health: —</span>
+                {/if}
+            </div>
+        {/if}
+
+        <!-- Persistent auth URL (shown whenever awaiting auth, not just during connect flow) -->
+        {#if tailscaleStatus?.auth_url && tailscaleStatus.status === "awaiting_auth"}
+            <div class="mt-3 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px]">
+                <p class="font-medium text-blue-200">Authentication required — open this URL to authorize:</p>
+                <button
+                    type="button"
+                    class="mt-1 break-all text-left text-blue-400 underline decoration-blue-500/40 underline-offset-2 transition-colors hover:text-blue-300"
+                    onclick={openTailscaleAuthUrl}>
+                    {tailscaleStatus.auth_url}
+                </button>
+                <p class="mt-1 text-slate-500">The page will update automatically once authorized.</p>
+            </div>
+        {/if}
+
+        <!-- Buttons -->
+        <div class="mt-3 flex flex-wrap gap-2">
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-100 transition-all duration-200 hover:bg-slate-800/60 disabled:opacity-50"
+                onclick={loadTailscale}
+                disabled={tailscaleLoading || tailscaleBusy}>
+                <RefreshCw class={`h-3.5 w-3.5 transition-transform duration-500 ${tailscaleLoading ? "animate-spin" : ""}`} />
+                Refresh
+            </button>
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-emerald-600 bg-emerald-700 px-3 py-1 font-semibold text-white transition-all duration-200 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                onclick={enableTailscale}
+                disabled={tailscaleLoading || tailscaleBusy || tailscaleEnabled}>
+                Enable
+            </button>
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-rose-600 bg-rose-700 px-3 py-1 font-semibold text-white transition-all duration-200 hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                onclick={disableTailscale}
+                disabled={tailscaleLoading || tailscaleBusy || !tailscaleEnabled}>
+                Disable
+            </button>
+            <!-- Connect / Login: prominent when not connected, dimmed when already connected -->
+            <button
+                type="button"
+                class={`inline-flex items-center gap-1 rounded border px-3 py-1 font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
+                    tailscaleStatus?.status === "connected"
+                        ? "border-slate-700 bg-slate-800/40 text-slate-500 disabled:opacity-40"
+                        : "border-blue-500 bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+                }`}
+                onclick={connectTailscale}
+                disabled={tailscaleLoading ||
+                    tailscaleBusy ||
+                    !tailscaleEnabled ||
+                    tailscaleStatus?.status === "connected"}>
+                <LoaderCircle
+                    class={`h-3.5 w-3.5 transition-all duration-200 ${tailscaleConnecting ? "animate-spin" : "hidden"}`} />
+                {tailscaleConnecting ? "Connecting…" : "Connect / Login"}
+            </button>
+            <!-- Logout: prominent when connected, subdued otherwise -->
+            <button
+                type="button"
+                class={`inline-flex items-center gap-1 rounded border px-3 py-1 font-semibold transition-all duration-200 disabled:cursor-not-allowed ${
+                    tailscaleStatus?.status === "connected"
+                        ? "border-amber-500 bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50"
+                        : "border-slate-700 bg-slate-900/60 text-slate-400 disabled:opacity-40"
+                }`}
+                onclick={logoutTailscale}
+                disabled={tailscaleLoading || tailscaleBusy || !tailscaleEnabled}>
+                Logout
+            </button>
+        </div>
+
+        <!-- Connecting progress banner (only during active connection attempt, before URL appears) -->
+        {#if tailscaleConnecting && tailscaleStatus?.status !== "awaiting_auth"}
+            <div class="mt-3 flex items-center gap-2 rounded border border-blue-900/50 bg-blue-950/40 px-3 py-2 text-[11px] text-blue-200">
+                <LoaderCircle class="h-3.5 w-3.5 animate-spin shrink-0" />
+                <span>
+                    {#if !tailscaleStatus?.daemon_running}
+                        Starting Tailscale daemon…
+                    {:else if tailscaleStatus?.status === "connected"}
+                        Connected to tailnet.
+                    {:else}
+                        Waiting for authentication URL…
+                    {/if}
+                </span>
+            </div>
+        {/if}
+
+        <!-- Hostname -->
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label
+                class="text-[11px] text-slate-500"
+                for="tailscale-hostname">
+                Hostname
+            </label>
+            <input
+                id="tailscale-hostname"
+                type="text"
+                class="w-full rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 sm:max-w-sm"
+                placeholder={tailscaleStatus?.hostname ?? "anibridge"}
+                bind:value={tailscaleHostname}
+                disabled={tailscaleLoading || tailscaleBusy} />
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-100 transition-all duration-200 hover:bg-slate-800/60 disabled:opacity-50"
+                onclick={saveTailscaleHostname}
+                disabled={tailscaleLoading || tailscaleBusy || !tailscaleHostname.trim()}>
+                Save Hostname
+            </button>
+        </div>
+
+        <p class="mt-2 text-[11px] text-slate-600">
+            Exit nodes are not supported in userspace mode until proxy support is added.
+        </p>
     </div>
 
     <div
